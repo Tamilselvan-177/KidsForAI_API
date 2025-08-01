@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Documentation - Course Platform</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="max-w-5xl mx-auto py-10 px-6">
+    <h1 class="text-4xl font-bold text-blue-600 mb-8 text-center">📘 Course Platform API Documentation</h1>
+
+    <!-- Endpoint Card Template -->
+    <div class="space-y-8">
+      <div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+        <h2 class="text-xl font-semibold text-blue-700">GET <code class="text-sm bg-blue-100 px-1 py-0.5 rounded">/courses/</code></h2>
+        <p class="text-gray-600 mt-2 mb-4">Get a list of all available courses.</p>
+        <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+[
+  {
+    "name": "Python Programming",
+    "id": 1,
+    "description": "Learn Python from basics to advanced concepts"
+  },
+  {
+    "name": "Web Development",
+    "id": 2,
+    "description": "Full-stack web development course"
+  },
+  {
+    "name": "Data Science",
+    "id": 3,
+    "description": "Introduction to data science and analytics"
+  }
+]</pre>
+      </div>
+
+      <div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+        <h2 class="text-xl font-semibold text-blue-700">GET <code class="text-sm bg-blue-100 px-1 py-0.5 rounded">/courses/{courseID}/modules</code></h2>
+        <p class="text-gray-600 mt-2 mb-4">Get all modules for a specific course.</p>
+        <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+[
+  {
+    "name": "Python Basics",
+    "description": "Introduction to Python programming",
+    "background_image": "assets/modules/python-basics.jpg",
+    "id": 1,
+    "course_id": 1,
+    "user_progress": {
+      "locked": false,
+      "completed": false,
+      "last_accessed": "2025-07-31T13:55:31"
+    }
+  },
+  ...
+]</pre>
+      </div>
+
+      <div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+        <h2 class="text-xl font-semibold text-blue-700">GET <code class="text-sm bg-blue-100 px-1 py-0.5 rounded">/modules/{moduleID}</code></h2>
+        <p class="text-gray-600 mt-2 mb-4">Get details for a specific module including resources.</p>
+        <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+{
+  "name": "Python Basics",
+  "description": "Introduction to Python programming",
+  "background_image": "assets/modules/python-basics.jpg",
+  "id": 1,
+  "course_id": 1,
+  "resources": [
+    {
+      "name": "Introduction For AI",
+      "locked": true,
+      "completed": false,
+      "id": 1,
+      "module_id": 1,
+      "videos": [],
+      "pdfs": [],
+      "activities": [
+        {
+          "name": "Smart or Not Smart",
+          "completed": false,
+          "score": 0.0,
+          "id": 1,
+          "resource_id": 1
+        }
+      ]
+    }
+  ]
+}</pre>
+      </div>
+
+
+
+      <div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+        <h2 class="text-xl font-semibold text-green-700">PATCH <code class="text-sm bg-green-100 px-1 py-0.5 rounded">/modules/{moduleID}/user-progress</code></h2>
+        <p class="text-gray-600 mt-2 mb-4">Update the module's progress status to mark it as completed.</p>
+        <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+{
+  "completed": true
+}</pre>
+<p> Response</p>
+      <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+{
+  "name": "Python Basics",
+  "description": "Introduction to Python programming",
+  "background_image": "assets/modules/python-basics.jpg",
+  "id": 1,
+  "course_id": 1,
+  "user_progress": {
+    "locked": false,
+    "completed": true,
+    "last_accessed": "2025-07-31T15:38:17"
+  }
+}</pre>
+      </div>
+      <!-- Add inside <div class="space-y-8"> ... -->
+<div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+  <h2 class="text-xl font-semibold text-green-700">POST <code class="text-sm bg-green-100 px-1 py-0.5 rounded">/login</code></h2>
+  <p class="text-gray-600 mt-2 mb-4">Login to your account.</p>
+  <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+Request:
+{
+  "email": "admin@example.com",
+  "password": "admin123"
+}
+
+Response:
+{
+  "message": "Login successful",
+  "success": true
+}</pre>
+</div>
+
+<div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+  <h2 class="text-xl font-semibold text-green-700">POST <code class="text-sm bg-green-100 px-1 py-0.5 rounded">/register</code></h2>
+  <p class="text-gray-600 mt-2 mb-4">Register a new user account.</p>
+  <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+Request:
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+
+Response:
+{
+  "email": "user@example.com",
+  "id": 4,
+  "is_admin": false
+}</pre>
+</div>
+
+<div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+  <h2 class="text-xl font-semibold text-blue-700">GET <code class="text-sm bg-blue-100 px-1 py-0.5 rounded">/health</code></h2>
+  <p class="text-gray-600 mt-2 mb-4">Check if the API is running.</p>
+  <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+{
+  "message": "API is running successfully",
+  "success": true
+}</pre>
+</div>
+
+<div class="bg-white shadow-md rounded-lg p-6 border border-blue-100">
+  <h2 class="text-xl font-semibold text-green-700">
+    POST <code class="text-sm bg-green-100 px-1 py-0.5 rounded">/modules/{moduleID}/complete-progress</code>
+  </h2>
+  <p class="text-gray-600 mt-2 mb-4">
+    Mark a module as completed for the current user, unlocks the next module, and calculates the total score from completed activities. Returns both progress and score.
+  </p>
+  <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+Request:
+{
+  "completed": true
+}
+  </pre>
+  <p class="mt-2 mb-1 font-semibold text-gray-700">Response</p>
+  <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto">
+{
+  "id": 1,
+  "name": "Python Basics",
+  "description": "Introduction to Python programming",
+  "background_image": "assets/modules/python-basics.jpg",
+  "course_id": 1,
+  "user_progress": {
+    "locked": false,
+    "completed": true,
+    "last_accessed": "2025-07-31T15:38:17"
+  },
+  "score": {
+    "total_score": 175.5,
+    "completed_at": "2025-07-31T15:38:17"
+  }
+}
+  </pre>
+  <ul class="list-disc pl-6 text-gray-700 mt-2">
+    <li><b>completed</b>: Set to <code>true</code> to mark the module as completed.</li>
+    <li><b>user_progress</b>: Shows the user's progress for this module.</li>
+    <li><b>score</b>: (Only present if completed) The total score from all completed activities in this module.</li>
+    <li>Automatically unlocks the next module for the user.</li>
+    <li>Creates or updates the score in the <code>student_scores</code> table.</li>
+  </ul>
+</div>
+
+    </div>
+
+    <!-- Route Summary Table -->
+    <div class="mt-12 bg-white rounded-lg shadow p-6 border border-gray-200">
+      <h3 class="text-2xl font-bold text-blue-600 mb-4">📌 API Endpoint Summary</h3>
+      <table class="w-full text-left table-auto">
+        <thead>
+          <tr class="bg-blue-100 text-blue-800">
+            <th class="p-2 border">Method</th>
+            <th class="p-2 border">Endpoint</th>
+            <th class="p-2 border">Description</th>
+          </tr>
+        </thead>
+        <tbody class="text-gray-700">
+          <tr class="hover:bg-gray-50">
+            <td class="p-2 border">GET</td>
+            <td class="p-2 border">/courses/</td>
+            <td class="p-2 border">List all courses</td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="p-2 border">GET</td>
+            <td class="p-2 border">/courses/{courseID}/modules</td>
+            <td class="p-2 border">Modules of a course</td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="p-2 border">GET</td>
+            <td class="p-2 border">/modules/{moduleID}</td>
+            <td class="p-2 border">Module details</td>
+          </tr>
+       
+          <tr class="hover:bg-gray-50">
+            <td class="p-2 border">PATCH</td>
+            <td class="p-2 border">/modules/{moduleID}/user-progress</td>
+            <td class="p-2 border">Update module completion status</td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+  <td class="p-2 border">POST</td>
+  <td class="p-2 border">/login</td>
+  <td class="p-2 border">Login a user</td>
+</tr>
+<tr class="hover:bg-gray-50">
+  <td class="p-2 border">POST</td>
+  <td class="p-2 border">/register</td>
+  <td class="p-2 border">Register a new user</td>
+</tr>
+<tr class="hover:bg-gray-50">
+  <td class="p-2 border">GET</td>
+  <td class="p-2 border">/health</td>
+  <td class="p-2 border">Check API status</td>
+</tr>
+<tr class="hover:bg-gray-50">
+  <td class="p-2 border">POST</td>
+  <td class="p-2 border">/modules/{moduleID}/complete-progress</td>
+  <td class="p-2 border">Complete a module, unlock next, and calculate score</td>
+</tr>
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
