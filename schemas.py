@@ -215,7 +215,7 @@ class ModuleWithCourse(Module):
 
 class GenericResponse(BaseModel):
     message: str
-    access_token: str
+    cookie: str
     success: bool = True
 
 class ErrorResponse(BaseModel):

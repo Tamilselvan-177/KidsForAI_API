@@ -27,11 +27,18 @@ app = FastAPI(title="Learning Management System API", version="1.0.0")
 
 # Serve the 'videos' folder at /videos
 app.mount("/videos", StaticFiles(directory="videos"), name="videos")
+app.mount("/pdf", StaticFiles(directory="pdf"), name="pdf")
 
 # CORS for Flutter local dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:8080"],
+ allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:8080",
+        "http://192.168.137.154:8000",  # Example
+        "http://192.168.1.10:8000",     # <-- Add your actual local IP here
+        "http://192.168.1.10:3000"      # <-- If your frontend runs on another port
+    ],    
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
