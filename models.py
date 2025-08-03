@@ -46,6 +46,7 @@ class Module(Base):  # Changed from Level
     background_image = Column(String(255))
     locked = Column(Boolean, default=True)
     completed = Column(Boolean, default=False)
+    score = Column(Float, default=0.0)  # <-- Add this line
 
     course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
 
@@ -100,7 +101,6 @@ class Activity(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     completed = Column(Boolean, default=False)
-    score = Column(Float, default=0.0)
 
     resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)  # Changed from module_id
     resource = relationship("Resource", back_populates="activities")  # Changed from module
@@ -137,7 +137,6 @@ class UserModuleProgress(Base):
     locked = Column(Boolean, default=True)
     completed = Column(Boolean, default=False)
     last_accessed = Column(DateTime, default=datetime.utcnow)
-
     user = relationship("User", back_populates="module_progress")
     module = relationship("Module", back_populates="user_progress")
 

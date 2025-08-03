@@ -37,7 +37,8 @@ app.add_middleware(
         "http://127.0.0.1:8080",
         "http://192.168.137.154:8000",  # Example
         "http://192.168.1.10:8000",     # <-- Add your actual local IP here
-        "http://192.168.1.10:3000"      # <-- If your frontend runs on another port
+        "http://192.168.1.10:3000" ,
+         
     ],    
     allow_credentials=True,
     allow_methods=["*"],
@@ -86,7 +87,7 @@ class CourseAdmin(ModelView, model=Course):
 
 class ModuleAdmin(ModelView, model=Module):
     column_list = [Module.id, Module.name, Module.description, Module.locked, 
-                  Module.completed, Module.course_id]
+                  Module.completed, Module.course_id,Module.score]
     name = "Module"
     name_plural = "Modules"
     icon = "fa-solid fa-layer-group"
@@ -104,8 +105,7 @@ class VideoAdmin(ModelView, model=Video):
     icon = "fa-solid fa-video"
 
 class ActivityAdmin(ModelView, model=Activity):
-    column_list = [Activity.id, Activity.name, Activity.completed, 
-                  Activity.score, Activity.resource_id]
+    column_list = [Activity.id, Activity.name, Activity.completed, Activity.resource_id]
     name = "Activity"
     name_plural = "Activities"
     icon = "fa-solid fa-tasks"
@@ -123,7 +123,7 @@ class UserProgressAdmin(ModelView, model=UserModuleProgress):
         UserModuleProgress.module_id, 
         UserModuleProgress.locked, 
         UserModuleProgress.completed,
-        UserModuleProgress.last_accessed
+        UserModuleProgress.last_accessed,
     ]
     can_create = False  # Progress is created automatically
     name = "User Progress"
@@ -296,13 +296,11 @@ def create_course(course: schemas.CourseCreate, db: Session = Depends(get_db),
 
 @app.get("/courses", response_model=List[schemas.CourseWithProgress])
 def get_courses(
-    skip: int = 0, 
-    limit: int = 100, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_authenticated_user)
 ):
     """Get all courses with user-specific progress"""
-    return crud.get_courses_with_progress(db, current_user.id, skip=skip, limit=limit)
+    return crud.get_courses_with_progress(db, current_user.id)
 
 @app.get("/courses/{course_id}", response_model=schemas.Course)
 def get_course(
@@ -560,19 +558,20 @@ def get_user_progress(current_user: User = Depends(get_authenticated_user), db: 
     """Get current user's progress across all courses (authenticated users only)"""
     return crud.get_user_progress(db, current_user.id)
 
-@app.post("/modules/{module_id}/complete", response_model=schemas.GenericResponse)
+@app.post("/modules/{module_id}/complete", response_model=schemas.StudentScore)
 def complete_module(module_id: int, db: Session = Depends(get_db),
                     current_user: User = Depends(get_authenticated_user)):
     """Mark module as completed and unlock next content (authenticated users only)"""
     # Mark module as completed
-    db_module = crud.update_module(db, module_id, completed=True)
+    print(f"Completing module {module_id} for user {current_user.id}")
+    db_module = crud.update_module(db, module_id, completed=True,user_id=current_user.id)
     if not db_module:
         raise HTTPException(status_code=404, detail="Module not found")
     
     # Unlock next content for this user
     crud.unlock_next_content(db, module_id, user_id=current_user.id)
     
-    return {"message": "Module completed successfully"}
+    return 
 
 @app.post("/activities/{activity_id}/submit", response_model=schemas.Activity)
 def submit_activity(activity_id: int, score: float, db: Session = Depends(get_db),
@@ -642,7 +641,6 @@ def health_check():
 
 @app.middleware("http")
 async def authentication_middleware(request: Request, call_next):
-    # List of public endpoints that don't require authentication
     public_paths = [
         "/docs",
         "/redoc",
@@ -651,8 +649,9 @@ async def authentication_middleware(request: Request, call_next):
         "/register",
         "/login",
         "/static",
+        "/videos",   # <-- add this
+        "/pdf",      # <-- add this
     ]
-    
     # Check if the path is public
     if any(request.url.path.startswith(path) for path in public_paths):
         return await call_next(request)
@@ -765,31 +764,6 @@ async def update_user_module_progress(
             "last_accessed": user_progress.last_accessed.isoformat() if user_progress.last_accessed else None
         }
     }
-@app.post("/modules/{module_id}/complete", response_model=schemas.StudentScore)
-async def complete_module(
-    module_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_authenticated_user)
-):
-    """Complete a module and calculate total score from activities"""
-    
-    # Verify module exists
-    db_module = crud.get_module(db, module_id)
-    if not db_module:
-        raise HTTPException(status_code=404, detail="Module not found")
-    
-    # Calculate and save score
-    student_score = crud.calculate_and_save_student_score(
-        db, current_user.id, module_id
-    )
-    
-    if not student_score:
-        raise HTTPException(
-            status_code=400, 
-            detail="No completed activities found for this module"
-        )
-    
-    return student_score
 
 @app.get("/students/scores", response_model=List[schemas.StudentScore])
 async def get_student_scores(

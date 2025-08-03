@@ -127,24 +127,88 @@ def get_modules_by_course(db: Session, course_id: int) -> List[Module]:
 def get_modules(db: Session, skip: int = 0, limit: int = 100) -> List[Module]:
     """Get all modules with pagination"""
     return db.query(Module).offset(skip).limit(limit).all()
-
-def update_module(db: Session, module_id: int, name: str = None, description: str = None,
-                 background_image: str = None, locked: bool = None, completed: bool = None) -> Optional[Module]:
-    """Update module information"""
+def update_module(
+    db: Session,
+    module_id: int,
+    name: str = None,
+    description: str = None,
+    background_image: str = None,
+    locked: bool = None,
+    completed: bool = None,
+    user_id: int = None  # <-- Add user_id for per-user progress
+) -> Optional[Module]:
+    """Update module information and update user progress/score if completed"""
+    print(f"Updating module {module_id} for user {user_id} with completed={completed}")
     db_module = db.query(Module).filter(Module.id == module_id).first()
-    if db_module:
-        if name is not None:
-            db_module.name = name
-        if description is not None:
-            db_module.description = description
-        if background_image is not None:
-            db_module.background_image = background_image
-        if locked is not None:
-            db_module.locked = locked
-        if completed is not None:
-            db_module.completed = completed
-        db.commit()
-        db.refresh(db_module)
+    if not db_module:
+        return None
+
+    if name is not None:
+        db_module.name = name
+    if description is not None:
+        db_module.description = description
+    if background_image is not None:
+        db_module.background_image = background_image
+    if locked is not None:
+        db_module.locked = locked
+    if completed is not None and user_id is not None:
+        # Update user progress for this module
+        user_progress = db.query(UserModuleProgress).filter(
+            UserModuleProgress.user_id == user_id,
+            UserModuleProgress.module_id == module_id
+        ).first()
+        if not user_progress:
+            user_progress = UserModuleProgress(
+                user_id=user_id,
+                module_id=module_id,
+                locked=False,
+                completed=completed,
+            )
+            db.add(user_progress)
+            db.commit()
+            db.refresh(user_progress)
+        else:
+            user_progress.completed = completed
+            user_progress.last_accessed = datetime.utcnow()
+            db.commit()
+            db.refresh(user_progress)
+        print(completed, user_progress)
+        
+        # If completed, update student_score using module.score from modules table
+        if completed == True:
+            # Fetch the score from the modules table instead of user_progress
+            module_score = db_module.score or 0.0
+            print(f"Module {module_id} completed by user {user_id} with score {module_score} (from modules table)")
+            
+            # Update or create student_score, ADDING to previous total
+            student_score = db.query(StudentScore).filter(
+                StudentScore.user_id == user_id,
+                StudentScore.module_id == module_id
+            ).first()
+            
+            if not student_score:
+                # Create new student score with module score
+                student_score = StudentScore(
+                    user_id=user_id,
+                    module_id=module_id,
+                    total_score=module_score,  # Use module score directly for new entry
+                    completed_at=datetime.utcnow()
+                )
+                print(f"Creating new student score: {student_score}")
+                db.add(student_score)
+            else:
+                # Add module score to existing total score
+                previous_total = student_score.total_score or 0.0
+                new_total = previous_total + module_score
+                student_score.total_score = new_total
+                student_score.completed_at = datetime.utcnow()
+                print(f"Updating existing student score: previous={previous_total}, module={module_score}, new_total={new_total}")
+            
+            db.commit()
+            db.refresh(student_score)
+
+    db.commit()
+    db.refresh(db_module)
     return db_module
 
 def delete_module(db: Session, module_id: int) -> bool:
@@ -333,7 +397,7 @@ def get_modules_by_course_with_progress(db: Session, course_id: int, user_id: in
 
 def get_courses_with_progress(db: Session, user_id: int, skip: int = 0, limit: int = 100) -> List[dict]:
     """Get all courses with user-specific progress"""
-    courses = db.query(Course).offset(skip).limit(limit).all()
+    courses = db.query(Course).all()
     
     # Get user progress for these courses
     progress_records = (
@@ -437,6 +501,7 @@ def unlock_next_content(db, module_id, user_id=None):
     """
     Unlock the next module for the user after completing the current module.
     """
+    print(module_id,user_id)
     current_module = db.query(Module).filter(Module.id == module_id).first()
     if not current_module:
         return None
@@ -448,12 +513,14 @@ def unlock_next_content(db, module_id, user_id=None):
     ).order_by(Module.id).first()
 
     if next_module and user_id:
+        print(f"Unlocking next module {next_module.id} for user {user_id}")
         # Unlock next module for this user
         next_progress = db.query(UserModuleProgress).filter(
             UserModuleProgress.user_id == user_id,
             UserModuleProgress.module_id == next_module.id
         ).first()
         if not next_progress:
+            print(f"Creating new progress for user {user_id} in module {next_module.id}")
             next_progress = UserModuleProgress(
                 user_id=user_id,
                 module_id=next_module.id,

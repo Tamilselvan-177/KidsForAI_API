@@ -182,6 +182,7 @@ class ModuleProgress(BaseModel):
     module_name: str
     locked: bool
     completed: bool
+    score: float
     resources: List[ResourceProgress]
 
 class CourseProgress(BaseModel):
