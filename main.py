@@ -1,5 +1,15 @@
 # main.py - Complete FastAPI application with CRUD endpoints
+from fastapi import UploadFile,File,Path
+import shutil
+from fastapi import Query
+from typing import List
+import glob
 
+from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video
+import uuid
+from wtforms import FileField  # <== this is from WTForms, SQLAdmin uses it under the hood
+from sqlalchemy.orm import Session
+import os
 from fastapi import FastAPI, Depends, HTTPException, Response, Request, Query
 from sqlalchemy.orm import Session
 from fastapi.responses import JSONResponse
@@ -8,10 +18,11 @@ from database import SessionLocal, engine, Base
 import crud, schemas
 from auth import create_access_token, verify_token
 from typing import List, Optional
-from sqlalchemy import and_
+from sqlalchemy import and_, asc
 from datetime import datetime
 from models import StudentScore
 from fastapi.staticfiles import StaticFiles
+from starlette_admin import BaseAdmin
 
 # SQLAdmin imports
 from sqlalchemy import create_engine
@@ -19,15 +30,27 @@ from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
+from sqladmin.forms import FileField
+from fastapi import UploadFile
+from fastapi.responses import FileResponse,HTMLResponse
+
 
 # Import your existing models
 from models import User, Course, Module, Video, Activity, PDF, Resource, UserModuleProgress
 
 app = FastAPI(title="Learning Management System API", version="1.0.0")
+# Define upload directory
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Mount static files to serve uploaded files
+app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="files")
 # Serve the 'videos' folder at /videos
 app.mount("/videos", StaticFiles(directory="videos"), name="videos")
 app.mount("/pdf", StaticFiles(directory="pdf"), name="pdf")
+
 
 # CORS for Flutter local dev
 app.add_middleware(
@@ -73,12 +96,67 @@ admin = Admin(app, engine, authentication_backend=authentication_backend)
 # Admin views
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.email]
-    column_details_exclude_list = [User.password]
-    can_delete = False
+    # column_exclude_list = [User.password]  # Hide password from admin list view
+    # form_excluded_columns = [User.password]  # Hide password from admin form unless handled separately
+
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
+    can_delete = True
+    
+    # Fix 1: Remove the 'iscreated' parameter - it's likely not expected
+    async def on_model_create(self, data, request):
+        print("Enter into on_model_create")
+        if "password" in data and not data["password"].startswith("$2b$"):
+            data["password"] = crud.hash_password(data["password"])
+        return data  # Make sure to return the modified data
 
+    # Fix 2: Complete the print statement and ensure proper return
+    async def on_model_update(self, data, request, model):
+        print("Enter into on_model_update")
+        
+        if "password" in data:
+            # Only re-hash if the password changed and is not already hashed
+            if data["password"] != model.password and not data["password"].startswith("$2b$"):
+                data["password"] = crud.hash_password(data["password"])
+        return data  # Make sure to return the modified data
+
+# Alternative approach - try these method names if the above don't work:
+class UserAdminAlternative(ModelView, model=User):
+    column_list = [User.id, User.email]
+    name = "User"
+    name_plural = "Users"
+    icon = "fa-solid fa-user"
+    can_delete = True
+    form_columns = ["is_admin", "email", "password"]
+    
+    # Try these alternative method names:
+    async def before_create(self, request, data, **kwargs):
+        print("Enter into before_create")
+        if "password" in data and not data["password"].startswith("$2b$"):
+            data["password"] = crud.hash_password(data["password"])
+        return data
+
+    async def before_update(self, request, data, model, **kwargs):
+        print("Enter into before_update")
+        if "password" in data:
+            if data["password"] != model.password and not data["password"].startswith("$2b$"):
+                data["password"] = crud.hash_password(data["password"])
+        return data
+
+    # Or try these:
+    async def on_create(self, data, request):
+        print("Enter into on_create")
+        if "password" in data and not data["password"].startswith("$2b$"):
+            data["password"] = crud.hash_password(data["password"])
+        return data
+
+    async def on_update(self, data, request, model):
+        print("Enter into on_update")
+        if "password" in data:
+            if data["password"] != model.password and not data["password"].startswith("$2b$"):
+                data["password"] = crud.hash_password(data["password"])
+        return data
 class CourseAdmin(ModelView, model=Course):
     column_list = [Course.id, Course.name]
     name = "Course"
@@ -110,12 +188,74 @@ class ActivityAdmin(ModelView, model=Activity):
     name_plural = "Activities"
     icon = "fa-solid fa-tasks"
 
+
 class PDFAdmin(ModelView, model=PDF):
-    column_list = [PDF.id, PDF.title, PDF.url, PDF.resource_id]
     name = "PDF"
     name_plural = "PDFs"
     icon = "fa-solid fa-file-pdf"
+    column_list = [PDF.id, PDF.title, PDF.url]
 
+    print("PDFAdmin initialized with custom URL formatter")
+
+    # form_overrides = {
+    #     "url": FileField
+    # }
+    # async def on_model_create(self, data, request: Request):
+    #     form = await request.form()
+    #     file = form.get("url")
+    #     print(file)
+
+    #     if not file or not file.filename.endswith(".pdf"):
+    #         raise ValueError("Only PDF files are allowed")
+        
+    #     title = form.get("title")
+    #     resource_id = form.get("resource_id")
+    #     resource_id = int(resource_id) if resource_id else None
+    #     print(f"Creating PDF with title: {title}, resource_id: {resource_id}")
+    #     print(f"File: {file.filename}, Size: {file.size} bytes" )
+    #     # ✅ Let serialize_field_value handle saving the file
+    #     return PDF(
+    #         title=title,
+    #         url=file,  # UploadFile here!
+    #         resource_id=resource_id,
+    #         thumbnail=None
+    #     )
+
+    
+    # async def serialize_field_value(self, value, field_name: str, request: Request):
+    #     """Convert UploadFile objects to file paths before database operations"""
+    #     if field_name == "url" and isinstance(value, UploadFile):
+    #         if not value.filename or not value.filename.endswith(".pdf"):
+    #             raise ValueError("Only PDF files are allowed")
+            
+    #         # Generate unique filename to avoid conflicts
+    #         unique_filename = f"{uuid.uuid4().hex}_{value.filename}"
+    #         file_path = os.path.join(UPLOAD_DIR, unique_filename)
+            
+    #         # Save the uploaded PDF file
+    #         with open(file_path, "wb") as f:
+    #             shutil.copyfileobj(value.file, f)
+            
+    #         return file_path
+        
+    #     return await super().serialize_field_value(value, field_name, request)
+    
+    # async def on_model_change(self, data, model, is_created: bool, request: Request):
+    #     """Clean up old files when updating"""
+    #     if not is_created and hasattr(model, 'url'):
+    #         # Get the form to check if a new file was uploaded
+    #         form = await request.form()
+    #         new_file = form.get("url")
+            
+    #         # If a new file was uploaded and we have an old file, delete it
+    #         if (new_file and isinstance(new_file, UploadFile) and 
+    #             new_file.filename and model.url and os.path.exists(model.url)):
+    #             try:
+    #                 os.remove(model.url)
+    #             except OSError:
+    #                 pass  # File might not exist or be accessible
+    
+    
 class UserProgressAdmin(ModelView, model=UserModuleProgress):
     column_list = [
         UserModuleProgress.id, 
@@ -300,6 +440,51 @@ def get_courses(
     current_user: User = Depends(get_authenticated_user)
 ):
     """Get all courses with user-specific progress"""
+    # first_course = db.query(Course).order_by(Course.id.asc()).first()
+
+    # if first_course:
+    #     # Check if course progress already exists
+    #     existing_course_progress = db.query(UserCourseProgress).filter_by(
+    #         user_id=current_user.id,
+    #         course_id=first_course.id
+    #     ).first()
+
+    #     # If not already created, unlock course
+    #     if not existing_course_progress:
+    #         course_progress = UserCourseProgress(
+    #             user_id=current_user.id,
+    #             course_id=first_course.id,
+    #             locked=False,
+    #             completed=False
+    #         )
+    #         db.add(course_progress)
+
+    #     # Get the first module in the first course
+    #     first_module = (
+    #         db.query(Module)
+    #         .filter(Module.course_id == first_course.id)
+    #         .order_by(Module.id.asc())
+    #         .first()
+    #     )
+
+    #     if first_module:
+    #         # Check if module progress already exists
+    #         existing_module_progress = db.query(UserModuleProgress).filter_by(
+    #             user_id=current_user.id,
+    #             module_id=first_module.id
+    #         ).first()
+
+    #         # If not already created, unlock module
+    #         if not existing_module_progress:
+    #             module_progress = UserModuleProgress(
+    #                 user_id=current_user.id,
+    #                 module_id=first_module.id,
+    #                 locked=False,
+    #                 completed=False
+    #             )
+    #             db.add(module_progress)
+
+    #     db.commit()
     return crud.get_courses_with_progress(db, current_user.id)
 
 @app.get("/courses/{course_id}", response_model=schemas.Course)
@@ -369,8 +554,66 @@ def get_course_modules(
 ):
     """Get all modules for a course with user-specific progress"""
     modules = crud.get_modules_by_course_with_progress(db, course_id, current_user.id)
+    
+    
     if not modules:
         raise HTTPException(status_code=404, detail="Course not found")
+    last_module_completed = modules[-1]["user_progress"]["completed"]
+
+    if last_module_completed:
+        print("Last module completed, unlocking next course if available")
+        # Unlock the next course if available
+        next_course = (
+            db.query(Course)
+            .filter(Course.id > course_id)
+            .order_by(asc(Course.id))
+            .first()
+        )
+
+        if next_course:
+            progress = (
+                db.query(UserCourseProgress)
+                .filter_by(user_id=current_user.id, course_id=next_course.id)
+                .first()
+            )
+
+            if progress and progress.locked:
+                progress.locked = False
+                db.commit()
+
+            elif not progress:
+                # If no progress entry exists yet, create one and unlock
+                new_progress = UserCourseProgress(
+                    user_id=current_user.id,
+                    course_id=next_course.id,
+                    locked=False,
+                    completed=False
+                )
+                db.add(new_progress)
+                db.commit()
+            first_module = (
+            db.query(Module)
+            .filter(Module.course_id == next_course.id)
+            .order_by(Module.id.asc())  # or Module.order.asc() if exists
+            .first()
+        )
+
+        if first_module:
+            module_progress = (
+                db.query(UserModuleProgress)
+                .filter_by(user_id=current_user.id, module_id=first_module.id)
+                .first()
+            )
+
+            if not module_progress:
+                new_module_progress = UserModuleProgress(
+                    user_id=current_user.id,
+                    module_id=first_module.id,
+                    locked=False,
+                    completed=False
+                )
+                db.add(new_module_progress)
+                db.commit()
     return [schemas.ModuleResponse(**module) for module in modules]
 
 @app.get("/modules/{module_id}/resources", response_model=List[schemas.Resource])  # Changed from modules
@@ -570,8 +813,12 @@ def complete_module(module_id: int, db: Session = Depends(get_db),
     
     # Unlock next content for this user
     crud.unlock_next_content(db, module_id, user_id=current_user.id)
+    student_score = db.query(StudentScore).filter(
+        StudentScore.user_id == current_user.id,
+        StudentScore.module_id == module_id
+    ).first()
+    return student_score if student_score else {"message": "Module completed successfully"}
     
-    return 
 
 @app.post("/activities/{activity_id}/submit", response_model=schemas.Activity)
 def submit_activity(activity_id: int, score: float, db: Session = Depends(get_db),
@@ -651,6 +898,8 @@ async def authentication_middleware(request: Request, call_next):
         "/static",
         "/videos",   # <-- add this
         "/pdf",      # <-- add this
+        "uploads",
+        "/files",
     ]
     # Check if the path is public
     if any(request.url.path.startswith(path) for path in public_paths):
@@ -873,6 +1122,397 @@ async def complete_module_and_progress(
             "completed_at": student_score.completed_at.isoformat()
         }
     return response
+
+## =================== PDF UPLOAD ENDPOINT ====================
+
+from fastapi import Request
+
+@app.post("/upload-pdf")
+async def upload_pdf(request: Request, file: UploadFile = File(...)):
+    """Upload PDF file and return full file URL"""
+    try:
+        print(f"Received file: {file.filename}, content_type: {file.content_type}")
+        
+        # Validate file type
+        if not file.filename or not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        
+        # Generate unique filename
+        unique_filename = f"{uuid.uuid4().hex}_{file.filename}"
+        file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        
+        print(f"Saving file to: {file_path}")
+        
+        # Read file content
+        content = await file.read()
+        
+        # Save the file
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        file_size = os.path.getsize(file_path)
+        print(f"File saved successfully. Size: {file_size} bytes")
+        
+        # Get base URL with IP or domain
+        base_url = str(request.base_url).rstrip('/')
+        full_file_url = f"{base_url}/uploads/{unique_filename}"
+        
+        return {
+            "success": True,
+            "filename": unique_filename,
+            "original_name": file.filename,
+            "file_path": file_path,
+            "file_url": full_file_url,
+            "size": file_size,
+            "message": "File uploaded successfully"
+        }
+
+    except Exception as e:
+        print("Upload failed:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/deletefile/{filename}")
+async def delete_upload(filename: str):
+    """Delete a specific uploaded file"""
+    try:
+        # Security validation
+        # if not filename.replace('-', '').replace('_', '').replace('.', '').isalnum():
+        #     raise HTTPException(status_code=400, detail="Invalid filename")
+
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        print(file_path)
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        os.remove(file_path)
+        return {
+            "success": True,
+            # "filename": file_path,
+            "message": "File deleted successfully"
+        }
+        return 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting file {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Serve files manually instead of using StaticFiles to avoid conflicts
+@app.get("/files/{filename}")
+async def serve_file(filename: str):
+    """Serve uploaded files"""
+    try:
+        # Security: only allow alphanumeric, dots, hyphens, underscores
+        if not filename.replace('-', '').replace('_', '').replace('.', '').isalnum():
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(
+            file_path,
+            media_type='application/pdf',
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error serving file {filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error serving file")
+
+
+
+@app.get("/uploads")
+async def list_uploads(request: Request):
+    """List all uploaded PDF files with metadata"""
+    try:
+        pattern = os.path.join(UPLOAD_DIR, "*_*.pdf")  # matches your naming scheme
+        files = []
+        for path in glob.glob(pattern):
+            filename = os.path.basename(path)
+            stat = os.stat(path)
+            base_url = str(request.base_url).rstrip('/')
+            files.append({
+                "filename": filename,
+                "original_name": "_".join(filename.split("_")[1:]),  # best effort
+                
+                "file_url": f"{base_url}/files/{filename}",  # adjust base if needed
+                "size": stat.st_size,
+                "uploaded_at": stat.st_ctime
+            })
+        return {"success": True, "files": files}
+    except Exception as e:
+        print("Error listing uploads:", e)
+        raise HTTPException(status_code=500, detail="Could not list uploads")
+
+
+@app.get("/upload")
+async def upload_page():
+    """Serve the upload page"""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>PDF Upload</title>
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            .upload-zone { 
+                border: 2px dashed #ccc; 
+                border-radius: 10px; 
+                padding: 50px; 
+                text-align: center; 
+                margin: 20px 0; 
+                transition: all 0.3s ease;
+            }
+            .upload-zone:hover { border-color: #007bff; background-color: #f8f9fa; }
+            .upload-zone.dragover { border-color: #007bff; background-color: #e3f2fd; }
+            .btn { 
+                background: #007bff; 
+                color: white; 
+                padding: 10px 20px; 
+                border: none; 
+                border-radius: 5px; 
+                cursor: pointer; 
+            }
+            .btn:hover { background: #0056b3; }
+            .file-list { margin-top: 20px; }
+            .file-item { 
+                background: #f8f9fa; 
+                padding: 15px; 
+                margin: 10px 0; 
+                border-radius: 5px; 
+                border-left: 4px solid #007bff; 
+            }
+            .file-url { 
+                background: #e9ecef; 
+                padding: 5px 10px; 
+                border-radius: 3px; 
+                font-family: monospace; 
+                font-size: 14px; 
+                margin: 5px 0; 
+                word-break: break-all;
+            }
+            .copy-btn { 
+                background: #28a745; 
+                color: white; 
+                border: none; 
+                padding: 5px 15px; 
+                border-radius: 3px; 
+                cursor: pointer; 
+                font-size: 12px; 
+            }
+            .error { 
+                background: #f8d7da; 
+                color: #721c24; 
+                padding: 15px; 
+                border-radius: 5px; 
+                margin: 10px 0; 
+            }
+        </style>
+    </head>
+    <body>
+        <h1>📄 PDF Upload Manager</h1>
+        <p>Upload PDF files and get URLs for your admin panel</p>
+        
+        <div class="upload-zone" id="uploadZone">
+            <h3>Drop PDF files here or click to browse</h3>
+            <input type="file" id="fileInput" multiple accept=".pdf" style="display: none;">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">
+                Choose PDF Files
+            </button>
+        </div>
+        
+        <div class="file-list" id="fileList"></div>
+      <script>
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+
+    // Helper to get base URL dynamically
+    const baseUrl = window.location.origin;
+
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
+
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        handleFiles(Array.from(e.dataTransfer.files));
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        handleFiles(Array.from(e.target.files));
+    });
+
+    async function handleFiles(files) {
+        const pdfFiles = files.filter(file =>
+            file.type === 'application/pdf' ||
+            file.name.toLowerCase().endsWith('.pdf')
+        );
+
+        if (pdfFiles.length === 0) {
+            showError('Please select PDF files only');
+            return;
+        }
+
+        for (const file of pdfFiles) {
+            await uploadFile(file);
+        }
+        await refreshFileList();
+    }
+
+    async function uploadFile(file) {
+        console.log('Uploading:', file.name, 'Size:', file.size);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/upload-pdf', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            console.log('Result:', result);
+
+            if (result.success) {
+                addFileToList(result);
+            } else {
+                throw new Error(result.detail || 'Upload failed');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            showError('Upload failed: ' + error.message);
+        }
+    }
+
+    function addFileToList(fileInfo, prepend = false) {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.dataset.filename = fileInfo.filename;
+
+        fileItem.innerHTML = `
+            <h4>✅ ${fileInfo.original_name || fileInfo.filename}</h4>
+            <p>Size: ${(fileInfo.size / 1024).toFixed(1)} KB</p>
+            <div class="file-url">${fileInfo.file_url}</div>
+            <div style="margin-top:8px;">
+                <button class="copy-btn" onclick="copyToClipboard('${fileInfo.file_url}')">
+                    Copy URL
+                </button>
+                <a href="${fileInfo.file_url}" target="_blank" style="margin-left:10px;">View PDF</a>
+                <button class="copy-btn" style="margin-left:10px; background:#dc3545;" onclick="confirmDelete('${fileInfo.filename}', this)">
+                    Delete
+                </button>
+            </div>
+        `;
+        if (prepend) fileList.prepend(fileItem);
+        else fileList.appendChild(fileItem);
+    }
+
+    function showError(message) {
+        const errorItem = document.createElement('div');
+        errorItem.className = 'error';
+        errorItem.innerHTML = `❌ ${message}`;
+        fileList.appendChild(errorItem);
+        setTimeout(() => errorItem.remove(), 5000);
+    }
+
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert('URL copied to clipboard!');
+        }).catch(() => {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('URL copied to clipboard!');
+        });
+    }
+
+    async function refreshFileList() {
+        try {
+            const res = await fetch('/uploads');
+            const data = await res.json();
+            if (data.success && Array.isArray(data.files)) {
+                fileList.innerHTML = '';
+                if (data.files.length === 0) {
+                    fileList.innerHTML = '<p>No uploaded PDFs yet.</p>';
+                    return;
+                }
+                data.files
+                    .sort((a, b) => b.uploaded_at - a.uploaded_at)
+                    .forEach(f => addFileToList(f));
+            } else {
+                showError('Failed to load uploaded files');
+            }
+        } catch (e) {
+            console.error('Error fetching uploads:', e);
+            showError('Could not fetch uploads');
+        }
+    }
+
+    function confirmDelete(filename, btn) {
+        if (!confirm(`Delete "${filename}"? This cannot be undone.`)) return;
+        deleteFile(filename, btn);
+    }
+
+    async function deleteFile(filename, btn) {
+        try {
+           const res = await fetch(`/deletefile/${encodeURIComponent(filename)}`, {
+    method: 'GET'
+    
+});           console.log(`Deleting file: ${encodeURIComponent(filename)}`);
+
+
+            if (res.headers.get('content-type')?.includes('application/json')) {
+    const result = await res.json();
+    if (result.success) {
+        alert(`Deleted ${filename}`);
+        document.querySelector(`.file-item[data-filename="${filename}"]`)?.remove();
+    } else {
+        showError('Delete failed: ' + result.detail || 'Unknown error');
+    }
+} else {
+    const text = await res.text();
+    showError('Delete failed (non-JSON response): ' + text.slice(0, 100));
+}
+            
+        } catch (e) {
+            console.error('Delete error:', e);
+            showError('Delete failed: ' + e.message);
+        }
+    }
+
+    // Initial load
+    window.addEventListener('DOMContentLoaded', refreshFileList);
+</script>
+
+
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.get("/")
+async def root():
+    return {"message": "PDF Upload Server", "upload_dir": UPLOAD_DIR}
+
+# IMPORTANT: Put the StaticFiles mount at the very end, or remove it entirely
+# since we're handling file serving manually with the /files/{filename} route above
+# app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
 if __name__ == "__main__":
     import uvicorn

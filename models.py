@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Float, Text
 from database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from typing import Optional
+
 
 class User(Base):
     __tablename__ = "users"
@@ -109,7 +111,7 @@ class Activity(Base):
         return f"Activity(id={self.id}, name='{self.name}', score={self.score})"
     
     def __str__(self):
-        return f"{self.name} (Score: {self.score}, Resource: {self.resource.name if self.resource else 'N/A'})"
+        return f"{self.name} (Score: {self.name}, Resource: {self.resource_id if self.resource else 'N/A'})"
 
 class PDF(Base):
     __tablename__ = "pdfs"
@@ -121,7 +123,7 @@ class PDF(Base):
 
     resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)  # Changed from module_id
     resource = relationship("Resource", back_populates="pdfs")  # Changed from module
-
+    # file: Optional[UploadFile] = None
     def __repr__(self):
         return f"PDF(id={self.id}, title='{self.title}', resource_id={self.resource_id})"
     
@@ -139,7 +141,7 @@ class UserModuleProgress(Base):
     last_accessed = Column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="module_progress")
     module = relationship("Module", back_populates="user_progress")
-
+    
     __table_args__ = (
         UniqueConstraint('user_id', 'module_id', name='uix_user_module'),
     )
