@@ -817,6 +817,7 @@ def complete_module(module_id: int, db: Session = Depends(get_db),
         StudentScore.user_id == current_user.id,
         StudentScore.module_id == module_id
     ).first()
+    
     return student_score if student_score else {"message": "Module completed successfully"}
     
 
