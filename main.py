@@ -440,51 +440,51 @@ def get_courses(
     current_user: User = Depends(get_authenticated_user)
 ):
     """Get all courses with user-specific progress"""
-    # first_course = db.query(Course).order_by(Course.id.asc()).first()
+    first_course = db.query(Course).order_by(Course.id.asc()).first()
 
-    # if first_course:
-    #     # Check if course progress already exists
-    #     existing_course_progress = db.query(UserCourseProgress).filter_by(
-    #         user_id=current_user.id,
-    #         course_id=first_course.id
-    #     ).first()
+    if first_course:
+        # Check if course progress already exists
+        existing_course_progress = db.query(UserCourseProgress).filter_by(
+            user_id=current_user.id,
+            course_id=first_course.id
+        ).first()
 
-    #     # If not already created, unlock course
-    #     if not existing_course_progress:
-    #         course_progress = UserCourseProgress(
-    #             user_id=current_user.id,
-    #             course_id=first_course.id,
-    #             locked=False,
-    #             completed=False
-    #         )
-    #         db.add(course_progress)
+        # If not already created, unlock course
+        if not existing_course_progress:
+            course_progress = UserCourseProgress(
+                user_id=current_user.id,
+                course_id=first_course.id,
+                locked=False,
+                completed=False
+            )
+            db.add(course_progress)
 
-    #     # Get the first module in the first course
-    #     first_module = (
-    #         db.query(Module)
-    #         .filter(Module.course_id == first_course.id)
-    #         .order_by(Module.id.asc())
-    #         .first()
-    #     )
+        # Get the first module in the first course
+        first_module = (
+            db.query(Module)
+            .filter(Module.course_id == first_course.id)
+            .order_by(Module.id.asc())
+            .first()
+        )
 
-    #     if first_module:
-    #         # Check if module progress already exists
-    #         existing_module_progress = db.query(UserModuleProgress).filter_by(
-    #             user_id=current_user.id,
-    #             module_id=first_module.id
-    #         ).first()
+        if first_module:
+            # Check if module progress already exists
+            existing_module_progress = db.query(UserModuleProgress).filter_by(
+                user_id=current_user.id,
+                module_id=first_module.id
+            ).first()
 
-    #         # If not already created, unlock module
-    #         if not existing_module_progress:
-    #             module_progress = UserModuleProgress(
-    #                 user_id=current_user.id,
-    #                 module_id=first_module.id,
-    #                 locked=False,
-    #                 completed=False
-    #             )
-    #             db.add(module_progress)
+            # If not already created, unlock module
+            if not existing_module_progress:
+                module_progress = UserModuleProgress(
+                    user_id=current_user.id,
+                    module_id=first_module.id,
+                    locked=False,
+                    completed=False
+                )
+                db.add(module_progress)
 
-    #     db.commit()
+        db.commit()
     return crud.get_courses_with_progress(db, current_user.id)
 
 @app.get("/courses/{course_id}", response_model=schemas.Course)
