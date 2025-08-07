@@ -214,6 +214,13 @@ class ModuleWithCourse(Module):
 
 # ==================== RESPONSE SCHEMAS ====================
 
+class superuser_login(BaseModel):
+    email: EmailStr
+    
+
+    class Config:
+        orm_mode = True
+
 class GenericResponse(BaseModel):
     message: str
     cookie: str

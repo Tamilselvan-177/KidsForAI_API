@@ -4,7 +4,9 @@ import shutil
 from fastapi import Query
 from typing import List
 import glob
-
+from wtforms import StringField, PasswordField,BooleanField
+from wtforms.validators import DataRequired
+from sqladmin.forms import Form
 from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video
 import uuid
 from wtforms import FileField  # <== this is from WTForms, SQLAdmin uses it under the hood
@@ -26,7 +28,7 @@ from starlette_admin import BaseAdmin
 
 # SQLAdmin imports
 from sqlalchemy import create_engine
-from sqladmin import Admin, ModelView
+from sqladmin import Admin, ModelView,action
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
@@ -67,7 +69,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+# Initialize the database
 # Create SQLAlchemy tables
 Base.metadata.create_all(bind=engine)
 
@@ -77,7 +86,7 @@ class AdminAuth(AuthenticationBackend):
         form = await request.form()
         username, password = form["username"], form["password"]
         
-        if username == "admin" and password == "admin123":
+        if authenticate_user(username, password):
             request.session.update({"admin": "authenticated"})
             return True
         return False
@@ -92,13 +101,27 @@ class AdminAuth(AuthenticationBackend):
 # Create admin interface
 authentication_backend = AdminAuth(secret_key="your-secret-key-here")
 admin = Admin(app, engine, authentication_backend=authentication_backend)
+class UserForm(Form):
+    email = StringField("Email", validators=[DataRequired()])
+    password = StringField("Password", validators=[DataRequired()])
+    is_admin = BooleanField("Is Admin")
+    def validate(self, extra_validators=None):
+        # Run default validations first
+        if not super().validate(extra_validators):
+            return False
 
+        # Automatically hash password if not hashed
+        if self.password.data and not self.password.data.startswith("$2b$"):
+            self.password.data = crud.pwd_context.hash(self.password.data)
+        
+        return True
 # Admin views
 class UserAdmin(ModelView, model=User):
+    form = UserForm
     column_list = [User.id, User.email]
     # column_exclude_list = [User.password]  # Hide password from admin list view
     # form_excluded_columns = [User.password]  # Hide password from admin form unless handled separately
-
+    save_as=True
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
@@ -194,9 +217,13 @@ class PDFAdmin(ModelView, model=PDF):
     name_plural = "PDFs"
     icon = "fa-solid fa-file-pdf"
     column_list = [PDF.id, PDF.title, PDF.url]
-
     print("PDFAdmin initialized with custom URL formatter")
 
+    @action("upload", "Upload PDF", "GO TO UPLOAD")
+    async def go_to_upload(self, request: Request):
+        # Redirect to /upload (custom route in FastAPI app)
+        base_url = str(request.base_url).rstrip('/')+"/upload"
+        return RedirectResponse(url=base_url)
     # form_overrides = {
     #     "url": FileField
     # }
@@ -292,13 +319,6 @@ admin.add_view(ActivityAdmin)
 admin.add_view(PDFAdmin)
 admin.add_view(UserProgressAdmin)
 admin.add_view(StudentScoreAdmin)
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Helper function to get current user
 def get_current_user(request: Request, db: Session = Depends(get_db)):
@@ -355,6 +375,16 @@ def admin_register(user: schemas.UserCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Email already registered")
     return crud.create_user(db, user.email, user.password, user.is_admin)
 
+def authenticate_user(username: str, password: str):
+    db = SessionLocal() 
+    user = db.query(User).filter(User.email == username).first()
+    if not user:
+        return None
+    print(f"Authenticating user: {user.email}, is_admin: {user.is_admin}")
+    
+    if not crud.verify_password(password, user.password) and user.is_admin:
+        return None
+    return user
 @app.post("/login", response_model=schemas.GenericResponse)
 def login(user: schemas.UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user"""
@@ -392,8 +422,7 @@ def logout(response: Response):
     response.delete_cookie(key="access_token")
     return {"message": "Logout successful"}
 
-# ==================== USER CRUD ENDPOINTS ====================
-
+# ==================== USER CRUD ENDPOINTS ==================
 @app.get("/users", response_model=List[schemas.User])
 def get_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), 
               admin_user: User = Depends(get_admin_user)):
@@ -901,6 +930,7 @@ async def authentication_middleware(request: Request, call_next):
         "/pdf",      # <-- add this
         "uploads",
         "/files",
+        "upload/"
     ]
     # Check if the path is public
     if any(request.url.path.startswith(path) for path in public_paths):
