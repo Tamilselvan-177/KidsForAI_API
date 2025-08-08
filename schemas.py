@@ -283,3 +283,5 @@ class StudentScore(BaseModel):
 
     class Config:
         orm_mode = True
+class SpellCheckRequest(BaseModel):
+    text: str

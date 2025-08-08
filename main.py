@@ -2,7 +2,8 @@
 from fastapi import UploadFile,File,Path,Body
 import shutil
 from googletrans import Translator# import argostranslate.package, argostranslate.translate
-
+from textblob import TextBlob
+from spellchecker import SpellChecker
 from fastapi import Query
 from typing import List
 import glob
@@ -226,6 +227,7 @@ class PDFAdmin(ModelView, model=PDF):
         # Redirect to /upload (custom route in FastAPI app)
         base_url = str(request.base_url).rstrip('/')+"/upload"
         return RedirectResponse(url=base_url)
+
     # form_overrides = {
     #     "url": FileField
     # }
@@ -1571,10 +1573,32 @@ async def upload_page():
 async def translators(text: str = Body(..., embed=True)):
     translator = Translator()
     result = await translator.translate(text, src="en", dest="ta")
-    return {"translated_text": result.text}
+    return {"text": result.text}
 @app.get("/")
 async def root():
     return {"message": "PDF Upload Server", "upload_dir": UPLOAD_DIR}
+
+@app.post("/spellcheck")
+def spell_check(data: schemas.SpellCheckRequest):
+    text = data.text
+
+    # Step 1: TextBlob for best correction
+    blob = TextBlob(text)
+    best_correction = str(blob.correct())
+
+    # Step 2: PySpellChecker for multiple suggestions
+    spell = SpellChecker()
+    misspelled = spell.unknown(text.split())
+
+    suggestions = {}
+    for word in misspelled:
+        suggestions[word] = list(spell.candidates(word))  # Convert set to list for JSON
+
+    return {
+        "original_text": text,
+        "best_correction": best_correction,
+        "suggestions": suggestions
+    }
 
 # IMPORTANT: Put the StaticFiles mount at the very end, or remove it entirely
 # since we're handling file serving manually with the /files/{filename} route above
