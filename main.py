@@ -1,6 +1,8 @@
 # main.py - Complete FastAPI application with CRUD endpoints
-from fastapi import UploadFile,File,Path
+from fastapi import UploadFile,File,Path,Body
 import shutil
+from googletrans import Translator# import argostranslate.package, argostranslate.translate
+
 from fastapi import Query
 from typing import List
 import glob
@@ -296,6 +298,19 @@ class UserProgressAdmin(ModelView, model=UserModuleProgress):
     name = "User Progress"
     name_plural = "User Progress"
     icon = "fa-solid fa-chart-line"
+class ClassProgressAdmin(ModelView, model=UserCourseProgress):
+    column_list = [
+        UserCourseProgress.id, 
+        UserCourseProgress.user_id, 
+        UserCourseProgress.course_id, 
+        UserCourseProgress.locked, 
+        UserCourseProgress.completed,
+        UserCourseProgress.last_accessed,
+    ]
+    can_create = False  # Progress is created automatically
+    name = "Class Progress"
+    name_plural = "Class Progress"
+    icon = "fa-solid fa-school"
 class StudentScoreAdmin(ModelView, model=StudentScore):
     column_list = [
         StudentScore.id,
@@ -319,6 +334,7 @@ admin.add_view(ActivityAdmin)
 admin.add_view(PDFAdmin)
 admin.add_view(UserProgressAdmin)
 admin.add_view(StudentScoreAdmin)
+admin.add_view(ClassProgressAdmin)
 
 # Helper function to get current user
 def get_current_user(request: Request, db: Session = Depends(get_db)):
@@ -384,6 +400,19 @@ def authenticate_user(username: str, password: str):
     
     if not crud.verify_password(password, user.password) and user.is_admin:
         return None
+    # token = create_access_token({"sub": user.email})
+
+    # # ✅ Set cookie
+    # response.set_cookie(
+    #     key="access_token",
+    #     value=token,
+    #     httponly=True,
+    #     max_age=365*24*60*60,
+    #     expires=365*24*60*60,
+    #     samesite="Lax",
+    #     secure=False
+    # )
+    
     return user
 @app.post("/login", response_model=schemas.GenericResponse)
 def login(user: schemas.UserLogin, response: Response, db: Session = Depends(get_db)):
@@ -536,6 +565,8 @@ def update_course(course_id: int, course_update: schemas.CourseUpdate,
     if not db_course:
         raise HTTPException(status_code=404, detail="Course not found")
     return db_course
+
+
 
 @app.delete("/courses/{course_id}", response_model=schemas.GenericResponse)
 def delete_course(course_id: int, db: Session = Depends(get_db),
@@ -930,7 +961,7 @@ async def authentication_middleware(request: Request, call_next):
         "/pdf",      # <-- add this
         "uploads",
         "/files",
-        "upload/"
+        "upload",
     ]
     # Check if the path is public
     if any(request.url.path.startswith(path) for path in public_paths):
@@ -1536,7 +1567,11 @@ async def upload_page():
     </html>
     """
     return HTMLResponse(content=html_content)
-
+@app.post("/translator")
+async def translators(text: str = Body(..., embed=True)):
+    translator = Translator()
+    result = await translator.translate(text, src="en", dest="ta")
+    return {"translated_text": result.text}
 @app.get("/")
 async def root():
     return {"message": "PDF Upload Server", "upload_dir": UPLOAD_DIR}

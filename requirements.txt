@@ -9,3 +9,4 @@ sqladmin
 starlette
 alembic
 
+python 3.12
