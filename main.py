@@ -1,9 +1,11 @@
 # main.py - Complete FastAPI application with CRUD endpoints
 from fastapi import UploadFile,File,Path,Body
+from sqlalchemy import func,desc
+
 import shutil
 from googletrans import Translator# import argostranslate.package, argostranslate.translate
-from textblob import TextBlob
-from spellchecker import SpellChecker
+# from textblob import TextBlob
+# from spellchecker import SpellChecker
 from fastapi import Query
 from typing import List
 import glob
@@ -317,7 +319,6 @@ class StudentScoreAdmin(ModelView, model=StudentScore):
     column_list = [
         StudentScore.id,
         StudentScore.user_id,
-        StudentScore.module_id,
         StudentScore.total_score,
         StudentScore.completed_at
     ]
@@ -493,7 +494,6 @@ def create_course(course: schemas.CourseCreate, db: Session = Depends(get_db),
                   admin_user: User = Depends(get_admin_user)):
     """Create a new course (admin only)"""
     return crud.create_course(db, course.name)
-
 @app.get("/courses", response_model=List[schemas.CourseWithProgress])
 def get_courses(
     db: Session = Depends(get_db),
@@ -882,6 +882,38 @@ def complete_module(module_id: int, db: Session = Depends(get_db),
     
     return student_score if student_score else {"message": "Module completed successfully"}
     
+@app.post("/update_score/")
+def update_score(module_id: int, score_to_add: int, db: Session = Depends(get_db),current_user: User = Depends(get_authenticated_user)):
+    # Only allow 10, 20, or 30
+    # if score_to_add not in [10, 20, 30]:
+    #     raise HTTPException(status_code=400, detail="Invalid score. Must be 10, 20, or 30.")
+    user_id = current_user.id
+    # Find if the student already has a score entry for the module
+    student_score = db.query(StudentScore).filter_by(user_id=user_id, module_id=module_id).first()
+
+    if not student_score:
+        # Create a new entry if none exists
+        student_score = StudentScore(
+            user_id=user_id,
+            module_id=module_id,
+            total_score=score_to_add,
+            completed_at=datetime.utcnow()
+        )
+        db.add(student_score)
+    else:
+        # Update existing score
+        student_score.total_score = (student_score.total_score or 0) + score_to_add
+        student_score.completed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(student_score)
+
+    return {
+        "message": "Score updated successfully",
+        "user_id": student_score.user_id,
+        "module_id": student_score.module_id,
+        "total_score": student_score.total_score
+    }
 
 @app.post("/activities/{activity_id}/submit", response_model=schemas.Activity)
 def submit_activity(activity_id: int, score: float, db: Session = Depends(get_db),
@@ -1578,31 +1610,92 @@ async def translators(text: str = Body(..., embed=True)):
 async def root():
     return {"message": "PDF Upload Server", "upload_dir": UPLOAD_DIR}
 
-@app.post("/spellcheck")
-def spell_check(data: schemas.SpellCheckRequest):
-    text = data.text
+# @app.post("/spellcheck")
+# def spell_check(data: schemas.SpellCheckRequest):
+#     text = data.text
 
-    # Step 1: TextBlob for best correction
-    blob = TextBlob(text)
-    best_correction = str(blob.correct())
+#     # Step 1: TextBlob for best correction
+#     blob = TextBlob(text)
+#     best_correction = str(blob.correct())
 
-    # Step 2: PySpellChecker for multiple suggestions
-    spell = SpellChecker()
-    misspelled = spell.unknown(text.split())
+#     # Step 2: PySpellChecker for multiple suggestions
+#     spell = SpellChecker()
+#     misspelled = spell.unknown(text.split())
 
-    suggestions = {}
-    for word in misspelled:
-        suggestions[word] = list(spell.candidates(word))  # Convert set to list for JSON
+#     suggestions = {}
+#     for word in misspelled:
+#         suggestions[word] = list(spell.candidates(word))  # Convert set to list for JSON
 
-    return {
-        "original_text": text,
-        "best_correction": best_correction,
-        "suggestions": suggestions
-    }
+#     return {
+#         "original_text": text,
+#         "best_correction": best_correction,
+#         "suggestions": suggestions
+#     }
 
 # IMPORTANT: Put the StaticFiles mount at the very end, or remove it entirely
 # since we're handling file serving manually with the /files/{filename} route above
 # app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
+@app.get("/leaderboard")
+def get_leaderboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user)
+):
+    """
+    Leaderboard API - returns all users by total score.
+    Also includes current user's rank and score.
+    """
+    # Get all users with their total scores
+    leaderboard_data = (
+        db.query(
+            User.id.label("user_id"),
+            User.email.label("email"),
+            func.coalesce(func.sum(StudentScore.total_score), 0).label("total_score")
+        )
+        .join(StudentScore, User.id == StudentScore.user_id, isouter=True)
+        .group_by(User.id, User.email)
+        .order_by(desc("total_score"))
+        .all()
+    )
+
+    # Format leaderboard with rank
+    formatted_leaderboard = [
+        {
+            "rank": idx + 1,
+            "user_id": row.user_id,
+            "email": row.email,
+            "total_score": row.total_score
+        }
+        for idx, row in enumerate(leaderboard_data)
+    ]
+
+    # Find current user's rank & score
+    current_user_rank = next(
+        (entry for entry in formatted_leaderboard if entry["user_id"] == current_user.id),
+        None
+    )
+
+    return {
+        "leaderboard": formatted_leaderboard,
+        "current_user": current_user_rank
+    }
+@app.get("/score")
+def get_user_score(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user)
+):
+    """
+    Returns the total score for the authenticated user.
+    """
+    total_score = (
+        db.query(func.coalesce(func.sum(StudentScore.total_score), 0))
+        .filter(StudentScore.user_id == current_user.id)
+        .scalar()
+    )
+
+    return {
+        "user_id": current_user.id,
+        "total_score": total_score
+    }
 
 if __name__ == "__main__":
     import uvicorn
