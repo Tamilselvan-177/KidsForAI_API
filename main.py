@@ -12,7 +12,7 @@ import glob
 from wtforms import StringField, PasswordField,BooleanField
 from wtforms.validators import DataRequired
 from sqladmin.forms import Form
-from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video
+from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video,UserActivityProgress
 import uuid
 from wtforms import FileField  # <== this is from WTForms, SQLAdmin uses it under the hood
 from sqlalchemy.orm import Session
@@ -149,6 +149,35 @@ class UserAdmin(ModelView, model=User):
                 data["password"] = crud.hash_password(data["password"])
         return data  # Make sure to return the modified data
 
+class UserActivityProgressAdmin(ModelView, model=UserActivityProgress):
+    name = "User Activity Progress"
+    name_plural = "User Activities Progress"
+    icon = "fa-solid fa-tasks"
+
+    column_list = [
+        UserActivityProgress.id,
+        UserActivityProgress.user_id,
+        UserActivityProgress.activity_id,
+        UserActivityProgress.completed
+    ]
+
+    column_searchable_list = [
+        UserActivityProgress.user_id,
+        UserActivityProgress.activity_id
+    ]
+
+    column_sortable_list = [
+        UserActivityProgress.id,
+        UserActivityProgress.user_id
+    ]
+
+    form_columns = [
+        UserActivityProgress.user_id,
+        UserActivityProgress.activity_id,
+        UserActivityProgress.completed
+    ]
+
+
 # Alternative approach - try these method names if the above don't work:
 class UserAdminAlternative(ModelView, model=User):
     column_list = [User.id, User.email]
@@ -211,7 +240,7 @@ class VideoAdmin(ModelView, model=Video):
     icon = "fa-solid fa-video"
 
 class ActivityAdmin(ModelView, model=Activity):
-    column_list = [Activity.id, Activity.name, Activity.completed, Activity.resource_id]
+    column_list = [Activity.id, Activity.name, Activity.resource_id]
     name = "Activity"
     name_plural = "Activities"
     icon = "fa-solid fa-tasks"
@@ -338,6 +367,7 @@ admin.add_view(PDFAdmin)
 admin.add_view(UserProgressAdmin)
 admin.add_view(StudentScoreAdmin)
 admin.add_view(ClassProgressAdmin)
+admin.add_view(UserActivityProgressAdmin)
 
 # Helper function to get current user
 def get_current_user(request: Request, db: Session = Depends(get_db)):
@@ -679,9 +709,9 @@ def get_course_modules(
     return [schemas.ModuleResponse(**module) for module in modules]
 
 @app.get("/modules/{module_id}/resources", response_model=List[schemas.Resource])  # Changed from modules
-def get_resources_by_module(module_id: int, db: Session = Depends(get_db)):
+def get_resources_by_module(module_id: int, db: Session = Depends(get_db),current_user: User = Depends(get_authenticated_user)):
     """Get all resources for a specific module (public access)"""
-    return crud.get_resources_by_module(db, module_id)
+    return crud.get_full_resources_by_module(db, module_id,current_user.id)
 
 @app.put("/modules/{module_id}", response_model=schemas.Module)
 def update_module(module_id: int, module_update: schemas.ModuleUpdate,
@@ -1696,6 +1726,80 @@ def get_user_score(
         "user_id": current_user.id,
         "total_score": total_score
     }
+
+@app.post("/activities/{activity_name}/complete")
+def complete_activity_with_score(
+    activity_name: str,
+    request: schemas.CompleteActivityRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user)
+):
+    """Mark activity completed & update score."""
+    score_to_add = request.score
+
+    # ✅ Only allow certain scores
+    # if score_to_add not in [10, 20, 30]:
+    #     raise HTTPException(status_code=400, detail="Invalid score. Must be 10, 20, or 30.")
+
+    # ✅ Find activity by name (case-insensitive)
+    activity = (
+        db.query(Activity)
+        .filter(func.lower(Activity.name) == activity_name.lower())
+        .first()
+    )
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    # ✅ Check if already completed
+    progress = db.query(UserActivityProgress).filter_by(
+        user_id=current_user.id,
+        activity_id=activity.id
+    ).first()
+
+    if progress and progress.completed:
+        return {"message": f"Activity '{activity_name}' already completed"}
+
+    if not progress:
+        progress = UserActivityProgress(
+            user_id=current_user.id,
+            activity_id=activity.id,
+            completed=True
+        )
+        db.add(progress)
+    else:
+        progress.completed = True
+
+    # ✅ Update student score for the module of this activity
+    module_id = activity.resource.module_id  # assuming `resource` → `module_id` link exists
+    student_score = db.query(StudentScore).filter_by(
+        user_id=current_user.id,
+        module_id=module_id
+    ).first()
+
+    if not student_score:
+        student_score = StudentScore(
+            user_id=current_user.id,
+            module_id=module_id,
+            total_score=score_to_add,
+            completed_at=datetime.utcnow()
+        )
+        db.add(student_score)
+    else:
+        student_score.total_score = (student_score.total_score or 0) + score_to_add
+        student_score.completed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(student_score)
+
+    return {
+        "message": f"Activity '{activity_name}' marked completed & score updated",
+        "activity": activity_name,
+        "score_added": score_to_add,
+        "new_total_score": student_score.total_score
+    }
+
+
+
 
 if __name__ == "__main__":
     import uvicorn

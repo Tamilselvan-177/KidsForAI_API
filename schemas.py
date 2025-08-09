@@ -285,3 +285,15 @@ class StudentScore(BaseModel):
         orm_mode = True
 class SpellCheckRequest(BaseModel):
     text: str
+
+class CompleteActivityRequest(BaseModel):
+    score:int
+
+class ActivityWithCompletion(BaseModel):
+    id: int
+    name: str
+    resource_id: int
+    completed: bool
+
+    class Config:
+        orm_mode = True

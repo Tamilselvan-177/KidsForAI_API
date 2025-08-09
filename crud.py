@@ -2,7 +2,9 @@
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video
+from sqlalchemy.orm import joinedload, Session
+
+from models import Course, StudentScore, Activity, Resource, Module, User, UserCourseProgress, UserModuleProgress,Video,UserActivityProgress
 from passlib.context import CryptContext
 from typing import Optional, List
 from datetime import datetime
@@ -239,10 +241,45 @@ def get_resource(db: Session, resource_id: int) -> Optional[Resource]:
     """Get resource by ID"""
     return db.query(Resource).filter(Resource.id == resource_id).first()
 
-def get_resources_by_module(db: Session, module_id: int) -> List[Resource]:
-    """Get all resources for a specific module"""
-    return db.query(Resource).filter(Resource.module_id == module_id).all()
+def get_full_resources_by_module(db: Session, module_id: int, user_id: int):
+    resources = (
+        db.query(Resource)
+        .filter(Resource.module_id == module_id)
+        .options(
+            joinedload(Resource.videos),
+            joinedload(Resource.pdfs),
+            joinedload(Resource.activities)
+        )
+        .all()
+    )
 
+    results = []
+    for res in resources:
+        activities_with_completion = []
+        for act in res.activities:
+            progress = (
+                db.query(UserActivityProgress)
+                .filter_by(activity_id=act.id, user_id=user_id)
+                .first()
+            )
+            activities_with_completion.append({
+                "id": act.id,
+                "name": act.name,
+                "resource_id": act.resource_id,
+                "module_id": res.module_id,
+                "completed": progress.completed if progress else False
+            })
+
+        results.append({
+            "id": res.id,
+            "name": res.name,
+            "module_id": res.module_id,
+            "videos": res.videos,
+            "pdfs": res.pdfs,
+            "activities": activities_with_completion
+        })
+
+    return results
 def get_resources(db: Session, skip: int = 0, limit: int = 100) -> List[Resource]:
     """Get all resources with pagination"""
     return db.query(Resource).offset(skip).limit(limit).all()

@@ -16,7 +16,7 @@ class User(Base):
     module_progress = relationship("UserModuleProgress", back_populates="user")
     course_progress = relationship("UserCourseProgress", back_populates="user")
     scores = relationship("StudentScore", back_populates="user")
-
+    activity_progress = relationship("UserActivityProgress", back_populates="user")
     def __repr__(self):
         return f"User(id={self.id}, email='{self.email}', is_admin={self.is_admin})"
     
@@ -102,10 +102,10 @@ class Activity(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
-    completed = Column(Boolean, default=False)
 
     resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)  # Changed from module_id
     resource = relationship("Resource", back_populates="activities")  # Changed from module
+    user_progress = relationship("UserActivityProgress", back_populates="activity")
 
     def __repr__(self):
         return f"Activity(id={self.id}, name='{self.name}', score={self.score})"
@@ -179,3 +179,17 @@ class StudentScore(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'module_id', name='uix_user_module_score'),
     )
+class UserActivityProgress(Base):
+    __tablename__ = "user_activity_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False)
+    completed = Column(Boolean, default=False)
+
+    # Relationships
+    user = relationship("User", back_populates="activity_progress")
+    activity = relationship("Activity", back_populates="user_progress")
+
+    def __repr__(self):
+        return f"UserActivityProgress(user_id={self.user_id}, activity_id={self.activity_id}, completed={self.completed})"
